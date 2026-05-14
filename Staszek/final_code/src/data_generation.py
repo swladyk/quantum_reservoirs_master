@@ -73,7 +73,7 @@ def create_io_pairs(data, window_size, lag=0):
     return np.array(inputs), np.array(outputs)
 
 
-def generate_arma_data(n_points=1000, ar_coeffs=[1, -0.7], ma_coeffs=[1, 0.5, -0.3], seed=42):
+def generate_arma_data(n_points=2000, ar_coeffs=[1, -0.7], ma_coeffs=[1, 0.5, -0.3], seed=42):
     """
     Generates time series data from an ARMA(p,q) process and scales it to [0, 1].
 

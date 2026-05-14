@@ -65,39 +65,18 @@ def quantum_feature_map(inputs, weights, biases, n_layers, n_qubits, dev):
     return circuit(inputs, weights, biases)
 
 
-def train_esn_reservoir(train_inputs, train_outputs, n_layers, n_qubits, leakage_rate, lambda_reg, seed):
+def train_esn_reservoir(train_inputs, train_outputs, n_layers, n_qubits, leakage_rate, lambda_reg, seed, washout=100):
     """
     Trains the quantum reservoir computer.
 
-    This involves generating random circuit parameters, computing quantum features
-    for the entire training set, and then training a linear readout layer
-    using Ridge Regression.
-
-    Parameters
-    ----------
-    train_inputs : np.ndarray
-        Training input data.
-    train_outputs : np.ndarray
-        Training target data.
-    n_layers : int
-        Number of layers in the quantum feature map.
-    n_qubits : int
-        Number of qubits to use.
-    leakage_rate : float
-        The leakage rate (alpha) of the reservoir.
-    lambda_reg : float
-        The regularization parameter for Ridge Regression.
-    seed : int
-        Seed for the random number generator to ensure reproducibility.
+    The first `washout` reservoir states are discarded before fitting the readout
+    so that the regression sees only post-transient dynamics. The returned
+    `quantum_features` matrix is likewise trimmed.
 
     Returns
     -------
     tuple
-        A tuple containing:
-        - W_out (np.ndarray): The trained weights of the readout layer.
-        - weights (np.ndarray): The randomly generated weights for the quantum circuit.
-        - biases (np.ndarray): The randomly generated biases for the quantum circuit.
-        - quantum_features (np.ndarray): The matrix of quantum features for analysis.
+        (W_out, weights, biases, quantum_features_post_washout)
     """
     np.random.seed(seed)
     weights = np.random.uniform(-np.pi, np.pi, (n_layers, n_qubits, 3))
@@ -122,47 +101,31 @@ def train_esn_reservoir(train_inputs, train_outputs, n_layers, n_qubits, leakage
             n_layers=n_layers, n_qubits=n_qubits, dev=dev
         )
 
-    # 3. Train the readout layer (Ridge Regression)
+    # 3. Drop transient and train the readout layer (Ridge Regression)
+    quantum_features = quantum_features[washout:]
     R = quantum_features
-    Y = train_outputs.reshape(-1, 1)
+    Y = train_outputs[washout:].reshape(-1, 1)
     I = np.identity(n_observables)
     W_out = np.linalg.solve(R.T @ R + lambda_reg * I, R.T @ Y).flatten()
 
     return W_out, weights, biases, quantum_features
 
 
-def predict_esn(test_inputs, weights, biases, W_out, n_layers, n_qubits, leakage_rate):
+def predict_esn(test_inputs, weights, biases, W_out, n_layers, n_qubits, leakage_rate, washout=100):
     """
     Makes one-step-ahead predictions using the trained QRC-ESN model.
 
-    Parameters
-    ----------
-    test_inputs : np.ndarray
-        The input data for which to make predictions.
-    weights : np.ndarray
-        The weights for the quantum circuit, obtained from training.
-    biases : np.ndarray
-        The biases for the quantum circuit, obtained from training.
-    W_out : np.ndarray
-        The trained readout weights.
-    n_layers : int
-        Number of layers in the quantum feature map.
-    n_qubits : int
-        Number of qubits.
-    leakage_rate : float
-        The leakage rate of the reservoir.
-
-    Returns
-    -------
-    np.ndarray
-        An array containing the model's predictions.
+    The first `washout` inputs only advance the reservoir state — no prediction is
+    computed for them. The returned array has length len(test_inputs) - washout.
     """
     predictions = []
     current_classical_state = np.zeros(n_qubits)
     dev = get_q_device(n_qubits)
 
-    for input_val in test_inputs:
+    for t, input_val in enumerate(test_inputs):
         current_classical_state = (1 - leakage_rate) * current_classical_state + leakage_rate * input_val
+        if t < washout:
+            continue
         q_features = quantum_feature_map(
             inputs=current_classical_state, weights=weights, biases=biases,
             n_layers=n_layers, n_qubits=n_qubits, dev=dev)
@@ -238,31 +201,12 @@ def update_reservoir_state(input_seq, W_in, W_res, reservoir_state, leakage_rate
            leakage_rate * np.tanh(W_in @ input_seq + W_res @ reservoir_state)
 
 
-def train_classical_reservoir(train_inputs, train_outputs, W_in, W_res, reservoir_size, leakage_rate, lambda_reg=1e-6):
+def train_classical_reservoir(train_inputs, train_outputs, W_in, W_res, reservoir_size, leakage_rate, lambda_reg=1e-6, washout=100):
     """
     Trains the readout layer of the classical ESN.
 
-    Parameters
-    ----------
-    train_inputs : np.ndarray
-        The sequence of training input vectors.
-    train_outputs : np.ndarray
-        The sequence of training target values.
-    W_in : np.ndarray
-        The input weight matrix.
-    W_res : np.ndarray
-        The reservoir weight matrix.
-    reservoir_size : int
-        The number of neurons in the reservoir.
-    leakage_rate : float
-        The leakage rate of the reservoir.
-    lambda_reg : float, optional
-        Regularization parameter for Ridge Regression, by default 1e-6.
-
-    Returns
-    -------
-    tuple[np.ndarray, np.ndarray]
-        A tuple containing the trained output weights (W_out) and the final reservoir state.
+    The first `washout` reservoir states are discarded before fitting the readout
+    so that the regression sees only post-transient dynamics.
     """
     reservoir_states = []
     reservoir_state = np.zeros(reservoir_size)
@@ -271,66 +215,38 @@ def train_classical_reservoir(train_inputs, train_outputs, W_in, W_res, reservoi
         reservoir_state = update_reservoir_state(input_seq, W_in, W_res, reservoir_state, leakage_rate)
         reservoir_states.append(reservoir_state)
 
-    R = np.vstack(reservoir_states)
-    Y = train_outputs.reshape(-1, 1)
+    R = np.vstack(reservoir_states[washout:])
+    Y = train_outputs[washout:].reshape(-1, 1)
     I = np.identity(reservoir_size)
     W_out = np.linalg.solve(R.T @ R + lambda_reg * I, R.T @ Y).T
 
     return W_out, reservoir_state
 
 
-def predict_esn_classical(test_inputs, W_in, W_res, W_out, reservoir_size, leakage_rate, initial_state):
+def predict_esn_classical(test_inputs, W_in, W_res, W_out, reservoir_size, leakage_rate, initial_state, washout=100):
     """
     Makes one-step-ahead predictions with the trained classical ESN.
 
-    Parameters
-    ----------
-    test_inputs : np.ndarray
-        The sequence of test input vectors.
-    W_in : np.ndarray
-        The input weight matrix.
-    W_res : np.ndarray
-        The reservoir weight matrix.
-    W_out : np.ndarray
-        The trained readout weight matrix.
-    reservoir_size : int
-        The number of neurons in the reservoir.
-    leakage_rate : float
-        The leakage rate of the reservoir.
-    initial_state : np.ndarray
-        The final state of the reservoir after training, used to initialize prediction.
-
-    Returns
-    -------
-    np.ndarray
-        An array containing the model's predictions.
+    The first `washout` inputs only advance the reservoir state — no prediction is
+    computed for them. The returned array has length len(test_inputs) - washout.
     """
     predictions = []
     reservoir_state = initial_state.copy()
 
-    for input_seq in test_inputs:
+    for t, input_seq in enumerate(test_inputs):
         reservoir_state = update_reservoir_state(input_seq, W_in, W_res, reservoir_state, leakage_rate)
+        if t < washout:
+            continue
         y_pred = (W_out @ reservoir_state)[0]
         predictions.append(y_pred)
 
     return np.array(predictions)
 
 
-def get_classical_reservoir_states(train_inputs, reservoir_size, leakage_rate, spectral_radius, sparsity, seed, input_dim):
+def get_classical_reservoir_states(train_inputs, reservoir_size, leakage_rate, spectral_radius, sparsity, seed, input_dim, washout=100):
     """
-    Drives the classical reservoir with training data and returns its internal states.
-
-    Parameters
-    ----------
-    train_inputs : np.ndarray
-        The sequence of training input vectors.
-    reservoir_size, leakage_rate, spectral_radius, sparsity, seed, input_dim :
-        Parameters needed to initialize and run the reservoir.
-
-    Returns
-    -------
-    np.ndarray
-        A matrix where each row is the reservoir state at a given time step.
+    Drives the classical reservoir with training data and returns its post-washout
+    internal states (first `washout` transient rows are discarded).
     """
     W_in_c, W_res_c = initialize_classical_reservoir(reservoir_size, input_dim, spectral_radius, sparsity, seed)
     reservoir_states = []
@@ -340,4 +256,4 @@ def get_classical_reservoir_states(train_inputs, reservoir_size, leakage_rate, s
         reservoir_state = update_reservoir_state(input_seq, W_in_c, W_res_c, reservoir_state, leakage_rate)
         reservoir_states.append(reservoir_state)
 
-    return np.vstack(reservoir_states)
+    return np.vstack(reservoir_states[washout:])
