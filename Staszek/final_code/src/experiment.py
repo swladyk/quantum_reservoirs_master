@@ -13,55 +13,71 @@ from .models import (train_esn_reservoir, predict_esn,
 WASHOUT = 100
 
 
-def _split_train_val_test(time_series, train_fraction, val_fraction):
-    """Chronological 60/20/20-style split. Returns (train, val, test)."""
+def _split_cv_pool_and_test(time_series, train_fraction):
+    """Split a time series into (cv_pool, held_out_test)."""
     n = len(time_series)
-    train_end = int(n * train_fraction)
-    val_end = train_end + int(n * val_fraction)
-    return time_series[:train_end], time_series[train_end:val_end], time_series[val_end:]
+    cv_end = int(n * train_fraction)
+    return time_series[:cv_end], time_series[cv_end:]
 
 
-# --- Podstawowe funkcje uruchamiające pojedynczy eksperyment ---
+def sliding_cv_folds(cv_pool, n_splits):
+    """
+    Sliding-window time-series CV folds with fixed train_size.
 
-def run_single_qrc_trial(params, profile, time_series, train_fraction, val_fraction, seed):
-    """Runs a SINGLE QRC trial for one seed. Returns (mse_val, mse_test)."""
+    val_size   = len(cv_pool) // (n_splits + 1)
+    train_size = (n_splits - 1) * val_size
+    Folds slide evenly so the first fold starts at index 0 and the last fold's
+    val ends at len(cv_pool).
+
+    For n_splits=5 on a 1600-pt pool:
+        val_size = 266, train_size = 1064, max_shift = 270
+        shifts = [0, 67, 135, 202, 270]
+    """
+    n = len(cv_pool)
+    val_size = n // (n_splits + 1)
+    train_size = (n_splits - 1) * val_size
+    max_shift = n - train_size - val_size
+
+    if n_splits == 1:
+        shifts = [0]
+    else:
+        shifts = [int(round(i * max_shift / (n_splits - 1))) for i in range(n_splits)]
+
+    folds = []
+    for shift in shifts:
+        train_data = cv_pool[shift: shift + train_size]
+        val_data = cv_pool[shift + train_size: shift + train_size + val_size]
+        folds.append((train_data, val_data))
+    return folds
+
+
+# --- Pojedynczy fold / pojedynczy test ---
+
+def _qrc_fit_predict(params, train_data, eval_data, seed):
+    """Train a QRC on train_data, evaluate on eval_data. Returns MSE."""
     leakage_rate, lambda_reg, window_size, n_layers, lag = params
-    train_data, val_data, test_data = _split_train_val_test(
-        time_series, train_fraction, val_fraction
-    )
 
     train_inputs, train_outputs = create_io_pairs(train_data, window_size, lag)
-    val_inputs, val_outputs = create_io_pairs(val_data, window_size, lag)
-    test_inputs, test_outputs = create_io_pairs(test_data, window_size, lag)
+    eval_inputs, eval_outputs = create_io_pairs(eval_data, window_size, lag)
 
     W_out, weights, biases, _ = train_esn_reservoir(
         train_inputs, train_outputs, n_layers, window_size,
         leakage_rate, lambda_reg, seed, washout=WASHOUT
     )
-    val_predictions = predict_esn(
-        val_inputs, weights, biases, W_out, n_layers,
+    predictions = predict_esn(
+        eval_inputs, weights, biases, W_out, n_layers,
         window_size, leakage_rate, washout=WASHOUT
     )
-    test_predictions = predict_esn(
-        test_inputs, weights, biases, W_out, n_layers,
-        window_size, leakage_rate, washout=WASHOUT
-    )
-    mse_val = mean_squared_error(val_outputs[WASHOUT:], val_predictions)
-    mse_test = mean_squared_error(test_outputs[WASHOUT:], test_predictions)
-    return mse_val, mse_test
+    return mean_squared_error(eval_outputs[WASHOUT:], predictions)
 
 
-def run_single_classical_trial(params, profile, time_series, train_fraction, val_fraction, seed):
-    """Runs a SINGLE Classical ESN trial for one seed. Returns (mse_val, mse_test)."""
+def _classical_fit_predict(params, train_data, eval_data, seed):
+    """Train a Classical ESN on train_data, evaluate on eval_data. Returns MSE."""
     reservoir_size, spectral_radius, sparsity, leakage_rate, lambda_reg = params
     window_size = 10
-    train_data, val_data, test_data = _split_train_val_test(
-        time_series, train_fraction, val_fraction
-    )
 
     train_inputs, train_outputs = create_io_pairs(train_data, window_size)
-    val_inputs, val_outputs = create_io_pairs(val_data, window_size)
-    test_inputs, test_outputs = create_io_pairs(test_data, window_size)
+    eval_inputs, eval_outputs = create_io_pairs(eval_data, window_size)
 
     W_in, W_res = initialize_classical_reservoir(
         reservoir_size, window_size, spectral_radius, sparsity, seed
@@ -70,20 +86,14 @@ def run_single_classical_trial(params, profile, time_series, train_fraction, val
         train_inputs, train_outputs, W_in, W_res,
         reservoir_size, leakage_rate, lambda_reg, washout=WASHOUT
     )
-    val_predictions = predict_esn_classical(
-        val_inputs, W_in, W_res, W_out,
+    predictions = predict_esn_classical(
+        eval_inputs, W_in, W_res, W_out,
         reservoir_size, leakage_rate, final_state, washout=WASHOUT
     )
-    test_predictions = predict_esn_classical(
-        test_inputs, W_in, W_res, W_out,
-        reservoir_size, leakage_rate, final_state, washout=WASHOUT
-    )
-    mse_val = mean_squared_error(val_outputs[WASHOUT:], val_predictions)
-    mse_test = mean_squared_error(test_outputs[WASHOUT:], test_predictions)
-    return mse_val, mse_test
+    return mean_squared_error(eval_outputs[WASHOUT:], predictions)
 
 
-# --- Wrappery agregujące wyniki po pod-ziarnach ---
+# --- Wrappery agregujące wyniki ---
 
 def _aggregate(scores):
     median = np.median(scores)
@@ -92,30 +102,40 @@ def _aggregate(scores):
     return median, std, cv
 
 
-def run_qrc_experiment_with_subseeds(params, profile, time_series,
-                                     train_fraction, val_fraction,
-                                     base_seed, num_trials=11):
-    """Runs QRC trials across sub-seeds; returns aggregated val + test stats."""
-    val_scores, test_scores = [], []
+def run_qrc_experiment_with_cv(params, profile, time_series,
+                               train_fraction, n_splits,
+                               base_seed, num_trials=11):
+    """
+    Sliding-window CV over n_splits folds and num_trials sub-seeds for a QRC.
+
+    Returns a dict combining:
+      - median/std/cv of n_splits * num_trials val MSEs from CV folds,
+      - median/std/cv of num_trials test MSEs from Variant-A test eval
+        (one re-training on the full CV pool per sub-seed).
+    """
+    cv_pool, test_data = _split_cv_pool_and_test(time_series, train_fraction)
+    folds = sliding_cv_folds(cv_pool, n_splits)
     sub_seeds = [base_seed + i for i in range(num_trials)]
 
+    cv_scores = []
     for seed in sub_seeds:
-        mse_val, mse_test = run_single_qrc_trial(
-            params, profile, time_series, train_fraction, val_fraction, seed
-        )
-        val_scores.append(mse_val)
-        test_scores.append(mse_test)
+        for train_data, val_data in folds:
+            cv_scores.append(_qrc_fit_predict(params, train_data, val_data, seed))
 
-    median_val, std_val, cv_val = _aggregate(val_scores)
+    test_scores = []
+    for seed in sub_seeds:
+        test_scores.append(_qrc_fit_predict(params, cv_pool, test_data, seed))
+
+    median_cv, std_cv, cv_cv = _aggregate(cv_scores)
     median_test, std_test, cv_test = _aggregate(test_scores)
 
     leakage_rate, lambda_reg, window_size, n_layers, lag = params
     return {
         'model_type': 'QRC',
         'data_profile': profile['name'],
-        'median_val_mse': median_val,
-        'std_val_mse': std_val,
-        'cv_val_mse': cv_val,
+        'median_cv_mse': median_cv,
+        'std_cv_mse': std_cv,
+        'cv_cv_mse': cv_cv,
         'median_test_mse': median_test,
         'std_test_mse': std_test,
         'cv_test_mse': cv_test,
@@ -128,30 +148,36 @@ def run_qrc_experiment_with_subseeds(params, profile, time_series,
     }
 
 
-def run_classical_experiment_with_subseeds(params, profile, time_series,
-                                           train_fraction, val_fraction,
-                                           base_seed, num_trials=11):
-    """Runs Classical ESN trials across sub-seeds; returns aggregated val + test stats."""
-    val_scores, test_scores = [], []
+def run_classical_experiment_with_cv(params, profile, time_series,
+                                     train_fraction, n_splits,
+                                     base_seed, num_trials=11):
+    """
+    Sliding-window CV over n_splits folds and num_trials sub-seeds for a Classical ESN.
+    Same return contract as run_qrc_experiment_with_cv.
+    """
+    cv_pool, test_data = _split_cv_pool_and_test(time_series, train_fraction)
+    folds = sliding_cv_folds(cv_pool, n_splits)
     sub_seeds = [base_seed + i for i in range(num_trials)]
 
+    cv_scores = []
     for seed in sub_seeds:
-        mse_val, mse_test = run_single_classical_trial(
-            params, profile, time_series, train_fraction, val_fraction, seed
-        )
-        val_scores.append(mse_val)
-        test_scores.append(mse_test)
+        for train_data, val_data in folds:
+            cv_scores.append(_classical_fit_predict(params, train_data, val_data, seed))
 
-    median_val, std_val, cv_val = _aggregate(val_scores)
+    test_scores = []
+    for seed in sub_seeds:
+        test_scores.append(_classical_fit_predict(params, cv_pool, test_data, seed))
+
+    median_cv, std_cv, cv_cv = _aggregate(cv_scores)
     median_test, std_test, cv_test = _aggregate(test_scores)
 
     reservoir_size, spectral_radius, sparsity, leakage_rate, lambda_reg = params
     return {
         'model_type': 'Classical_ESN',
         'data_profile': profile['name'],
-        'median_val_mse': median_val,
-        'std_val_mse': std_val,
-        'cv_val_mse': cv_val,
+        'median_cv_mse': median_cv,
+        'std_cv_mse': std_cv,
+        'cv_cv_mse': cv_cv,
         'median_test_mse': median_test,
         'std_test_mse': std_test,
         'cv_test_mse': cv_test,
