@@ -73,8 +73,7 @@ def _qrc_fit_predict(params, train_data, eval_data, seed):
 
 def _classical_fit_predict(params, train_data, eval_data, seed):
     """Train a Classical ESN on train_data, evaluate on eval_data. Returns MSE."""
-    reservoir_size, spectral_radius, sparsity, leakage_rate, lambda_reg = params
-    window_size = 10
+    reservoir_size, spectral_radius, sparsity, leakage_rate, lambda_reg, window_size = params
 
     train_inputs, train_outputs = create_io_pairs(train_data, window_size)
     eval_inputs, eval_outputs = create_io_pairs(eval_data, window_size)
@@ -171,7 +170,7 @@ def run_classical_experiment_with_cv(params, profile, time_series,
     median_cv, std_cv, cv_cv = _aggregate(cv_scores)
     median_test, std_test, cv_test = _aggregate(test_scores)
 
-    reservoir_size, spectral_radius, sparsity, leakage_rate, lambda_reg = params
+    reservoir_size, spectral_radius, sparsity, leakage_rate, lambda_reg, window_size = params
     return {
         'model_type': 'Classical_ESN',
         'data_profile': profile['name'],
@@ -186,6 +185,6 @@ def run_classical_experiment_with_cv(params, profile, time_series,
         'sparsity': sparsity,
         'leakage_rate': leakage_rate,
         'lambda_reg': lambda_reg,
-        'window_size': 10,
+        'window_size': window_size,
         'base_seed': base_seed
     }

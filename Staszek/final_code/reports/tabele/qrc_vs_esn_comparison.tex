@@ -1,0 +1,28 @@
+\begin{table}[ht]
+\centering
+\caption{Bezpośrednie porównanie najlepszych modeli QRC i klasycznego ESN dla każdego zbioru danych. Selekcja w obrębie modelu i zbioru przez najniższe test NMSE.}
+\label{tab:qrc-vs-esn-comparison}
+\begin{tabular}{llccc}
+\toprule
+Zbiór danych & Model & NMSE & leakage rate & window size \\
+\midrule
+\multirow{2}{*}{\texttt{Mackey\_Glass\_(tau=17)}} & QRC & $4.00 \times 10^{-5}$ & 1.0 & 10 \\
+& Classical ESN & $4.35 \times 10^{-7}$ & 1.0 & 10 \\
+\midrule
+\multirow{2}{*}{\texttt{Mackey\_Glass\_(tau=30)}} & QRC & $4.05 \times 10^{-5}$ & 1.0 & 10 \\
+& Classical ESN & $1.37 \times 10^{-6}$ & 1.0 & 6 \\
+\midrule
+\multirow{2}{*}{\texttt{Mackey\_Glass\_(tau=100)}} & QRC & $2.20 \times 10^{-4}$ & 1.0 & 10 \\
+& Classical ESN & $9.95 \times 10^{-6}$ & 0.9 & 6 \\
+\midrule
+\multirow{2}{*}{\texttt{ARMA\_1\_2\_stochastic}} & QRC & $3.78 \times 10^{-1}$ & 0.1 & 10 \\
+& Classical ESN & $3.75 \times 10^{-1}$ & 0.9 & 1 \\
+\midrule
+\multirow{2}{*}{\texttt{NARMA10\_Chaotic}} & QRC & $5.22 \times 10^{-1}$ & 1.0 & 10 \\
+& Classical ESN & $4.75 \times 10^{-1}$ & 0.9 & 1 \\
+\midrule
+\multirow{2}{*}{\texttt{NARMA5\_Chaotic}} & QRC & $5.95 \times 10^{-1}$ & 0.1 & 10 \\
+& Classical ESN & $5.88 \times 10^{-1}$ & 0.9 & 1 \\
+\bottomrule
+\end{tabular}
+\end{table}
