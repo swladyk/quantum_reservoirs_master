@@ -1,0 +1,19 @@
+\begin{table}[ht]
+\centering
+\caption{Concordance \% per window-size-bin dla modelu Classical ESN. Mediana z binów = syntetyczna liczba po kontroli rozmiaru okna jako confoundera.}
+\label{tab:concordance-per-bin-classical_esn}
+\begin{tabular}{lccccccc}
+\toprule
+Zbiór danych & $w{=}1$ & $w{=}2$ & $w{=}4$ & $w{=}6$ & $w{=}8$ & $w{=}10$ & Mediana \\
+\midrule
+\texttt{ARMA\_InputDriven} & 35\% & 36\% & 5\% & 2\% & 0\% & 2\% & \textbf{3\%} \\
+\texttt{Mackey\_Glass\_(tau=100)} & 7\% & 21\% & \textemdash & 13\% & 21\% & 21\% & \textbf{21\%} \\
+\texttt{Mackey\_Glass\_(tau=17)} & \textemdash & 21\% & 21\% & \textemdash & 21\% & \textemdash & \textbf{21\%} \\
+\texttt{Mackey\_Glass\_(tau=30)} & \textemdash & 21\% & 21\% & \textemdash & 21\% & 33\% & \textbf{21\%} \\
+\texttt{NARMA10\_InputDriven} & 87\% & 87\% & 87\% & 85\% & 80\% & 64\% & \textbf{86\%} \\
+\texttt{NARMA5\_InputDriven} & 87\% & 87\% & 72\% & 29\% & 20\% & 22\% & \textbf{51\%} \\
+\midrule
+\textbf{Wszystkie zbiory} & 25\% & 20\% & 20\% & 23\% & 17\% & 18\% & \textbf{20\%} \\
+\bottomrule
+\end{tabular}
+\end{table}

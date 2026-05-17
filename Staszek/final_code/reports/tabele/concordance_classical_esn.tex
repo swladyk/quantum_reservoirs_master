@@ -1,0 +1,19 @@
+\begin{table}[ht]
+\centering
+\caption{Probability of concordance dla modelu Classical ESN: efektywna wymiarowość vs test NMSE. Bootstrap 95\% CI z 1000 resampli.}
+\label{tab:concordance-classical_esn}
+\begin{tabular}{lcc}
+\toprule
+Zbiór danych & Concordance \% & 95\% CI (bootstrap) \\
+\midrule
+\texttt{Mackey\_Glass\_(tau=17)} & 34.2\% & [26.0, 42.1]\% \\
+\texttt{Mackey\_Glass\_(tau=30)} & 33.8\% & [25.8, 44.1]\% \\
+\texttt{Mackey\_Glass\_(tau=100)} & 29.0\% & [18.9, 42.6]\% \\
+\texttt{ARMA\_InputDriven} & 40.5\% & [29.4, 53.8]\% \\
+\texttt{NARMA10\_InputDriven} & 78.0\% & [70.8, 83.9]\% \\
+\texttt{NARMA5\_InputDriven} & 62.9\% & [48.1, 76.4]\% \\
+\midrule
+\textbf{Wszystkie zbiory (cumulative)} & \textbf{23.5\%} & \textbf{[21.0, 26.3]\%} \\
+\bottomrule
+\end{tabular}
+\end{table}

@@ -3,7 +3,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-from .data_generation import create_io_pairs
+from .data_generation import (create_io_pairs, make_io_pairs,
+                              series_length, slice_series)
 from .models import (train_esn_reservoir, predict_esn,
                      initialize_classical_reservoir, train_classical_reservoir,
                      predict_esn_classical)
@@ -12,7 +13,7 @@ from .models import (train_esn_reservoir, predict_esn,
 def _retrain_best_qrc(best_qrc_row, train_series, constants):
     """Re-train the best QRC model on train_series; return artifacts + window size."""
     qrc_win_size = int(best_qrc_row['window_size'])
-    qrc_train_inputs, qrc_train_outputs = create_io_pairs(train_series, qrc_win_size)
+    qrc_train_inputs, qrc_train_outputs = make_io_pairs(train_series, qrc_win_size)
 
     W_out_q, weights_q, biases_q, _ = train_esn_reservoir(
         qrc_train_inputs, qrc_train_outputs,
@@ -28,7 +29,7 @@ def _retrain_best_qrc(best_qrc_row, train_series, constants):
 def _retrain_best_classical(best_classical_row, train_series, constants):
     """Re-train the best Classical ESN on train_series; return artifacts + window size."""
     classical_win_size = int(best_classical_row.get('window_size', 10))
-    classical_train_inputs, classical_train_outputs = create_io_pairs(train_series, classical_win_size)
+    classical_train_inputs, classical_train_outputs = make_io_pairs(train_series, classical_win_size)
 
     W_in_c, W_res_c = initialize_classical_reservoir(
         reservoir_size=int(best_classical_row['reservoir_size']),
@@ -56,9 +57,10 @@ def plot_best_model_comparison(best_qrc_row, best_classical_row, data_profile_co
 
     generator_func = data_profile_config['generator']
     time_series = generator_func(**data_profile_config['params'])
-    cv_end = int(len(time_series) * constants['TRAIN_FRACTION'])
-    train_series = time_series[:cv_end]
-    test_series = time_series[cv_end:]
+    n_total = series_length(time_series)
+    cv_end = int(n_total * constants['TRAIN_FRACTION'])
+    train_series = slice_series(time_series, 0, cv_end)
+    test_series = slice_series(time_series, cv_end, n_total)
 
     washout = constants.get('WASHOUT', 100)
 
@@ -66,42 +68,30 @@ def plot_best_model_comparison(best_qrc_row, best_classical_row, data_profile_co
     W_out_q, weights_q, biases_q, qrc_win_size = _retrain_best_qrc(
         best_qrc_row, train_series, constants
     )
-    qrc_test_inputs, qrc_test_outputs = create_io_pairs(test_series, qrc_win_size)
+    qrc_test_inputs, qrc_test_outputs = make_io_pairs(test_series, qrc_win_size)
     qrc_preds = predict_esn(
         qrc_test_inputs, weights_q, biases_q, W_out_q,
         int(best_qrc_row['n_layers']), qrc_win_size,
         best_qrc_row['leakage_rate'], washout=washout
     )
-    print(f"Best QRC Median Test MSE: {best_qrc_row['median_test_mse']:.6f}")
+    print(f"Best QRC Median Test NMSE: {best_qrc_row['median_test_nmse']:.6f}")
 
-    print("Retraining best Classical ESN on full CV pool...")
-    W_in_c, W_res_c, W_out_c, last_state_c, classical_win_size = _retrain_best_classical(
-        best_classical_row, train_series, constants
-    )
-    classical_test_inputs, classical_test_outputs = create_io_pairs(test_series, classical_win_size)
-    classical_preds = predict_esn_classical(
-        classical_test_inputs, W_in_c, W_res_c, W_out_c,
-        reservoir_size=int(best_classical_row['reservoir_size']),
-        leakage_rate=best_classical_row['leakage_rate'],
-        initial_state=last_state_c, washout=washout
-    )
-    print(f"Best Classical ESN Median Test MSE: {best_classical_row['median_test_mse']:.6f}")
+    # Classical ESN was previously retrained and overlaid here; removed per user
+    # request — plot now shows only True Data and QRC prediction. The
+    # `best_classical_row` parameter is kept for API compatibility but unused.
 
     qrc_test_outputs_aligned = qrc_test_outputs[washout:]
     plot_limit = 200
-    min_len = min(len(qrc_test_outputs_aligned), plot_limit)
-
-    test_outputs = qrc_test_outputs_aligned[:min_len]
-    qrc_preds_plot = qrc_preds[:min_len]
+    min_len = min(len(qrc_test_outputs_aligned), len(qrc_preds), plot_limit)
 
     plt.figure(figsize=(15, 7))
-    plt.plot(test_outputs, label="True Data (Test Set)", color="black", linewidth=2.5, alpha=0.8)
-    plt.plot(qrc_preds_plot,
-             label=f"Best QRC Prediction (Median Test MSE: {best_qrc_row['median_test_mse']:.6f})",
-             color="black", linestyle="--", alpha=0.9, linewidth=2.5)
+    plt.plot(qrc_test_outputs_aligned[:min_len], label="True Data (Test Set)",
+             color="black", linewidth=2.5, alpha=0.85)
+    plt.plot(qrc_preds[:min_len],
+             label=f"Best QRC Prediction (Median Test NMSE: {best_qrc_row['median_test_nmse']:.6f})",
+             color="tab:blue", linestyle="--", alpha=0.95, linewidth=3.5)
     plt.xlabel("Time Step (in test set)", fontsize=12)
     plt.ylabel("Normalized Value", fontsize=12)
-    plt.title(f"One-Step-Ahead Prediction Comparison for: {profile_name}", fontsize=14, weight='bold')
     plt.legend(loc='upper right', fontsize=10)
     plt.grid(True, which='both', linestyle='--', alpha=0.6)
     plt.tight_layout()
@@ -120,9 +110,10 @@ def plot_cv_split_overview(best_qrc_row, data_profile_config, constants):
 
     generator_func = data_profile_config['generator']
     time_series = generator_func(**data_profile_config['params'])
-    cv_end = int(len(time_series) * constants['TRAIN_FRACTION'])
-    train_series = time_series[:cv_end]
-    test_series = time_series[cv_end:]
+    n_total = series_length(time_series)
+    cv_end = int(n_total * constants['TRAIN_FRACTION'])
+    train_series = slice_series(time_series, 0, cv_end)
+    test_series = slice_series(time_series, cv_end, n_total)
 
     washout = constants.get('WASHOUT', 100)
     n_splits = constants.get('N_SPLITS', 5)
@@ -130,31 +121,40 @@ def plot_cv_split_overview(best_qrc_row, data_profile_config, constants):
     W_out_q, weights_q, biases_q, qrc_win_size = _retrain_best_qrc(
         best_qrc_row, train_series, constants
     )
-    qrc_test_inputs, _ = create_io_pairs(test_series, qrc_win_size)
+    qrc_test_inputs, _ = make_io_pairs(test_series, qrc_win_size)
     qrc_preds = predict_esn(
         qrc_test_inputs, weights_q, biases_q, W_out_q,
         int(best_qrc_row['n_layers']), qrc_win_size,
         best_qrc_row['leakage_rate'], washout=washout
     )
 
+    # For input-driven tasks the predicted quantity is the target series y;
+    # for autoregressive it is the same array.
+    display_series = time_series[1] if isinstance(time_series, tuple) else time_series
+
     # Predictions are aligned with the test segment after windowing + washout.
-    test_start_abs = cv_end + qrc_win_size + washout
+    # For input-driven tasks, prediction t corresponds to target index
+    # (test_segment_start + window_size - 1 + washout + t).
+    if isinstance(time_series, tuple):
+        test_start_abs = cv_end + qrc_win_size - 1 + washout
+    else:
+        test_start_abs = cv_end + qrc_win_size + washout
     pred_x = np.arange(test_start_abs, test_start_abs + len(qrc_preds))
 
     fig, ax = plt.subplots(figsize=(16, 6))
 
-    ax.plot(np.arange(len(time_series)), time_series,
+    ax.plot(np.arange(n_total), display_series,
             color='black', linewidth=1.2, label='True Data')
 
     train_pct = int(round(constants['TRAIN_FRACTION'] * 100))
     test_pct = 100 - train_pct
     ax.axvspan(0, cv_end, color='tab:blue', alpha=0.10,
                label=f"CV pool ({train_pct}%) — sliding {n_splits}-fold")
-    ax.axvspan(cv_end, len(time_series), color='tab:green', alpha=0.15,
+    ax.axvspan(cv_end, n_total, color='tab:green', alpha=0.15,
                label=f"Held-out Test ({test_pct}%)")
 
     # Mark sliding-window CV val-segment starts inside the CV pool.
-    n = len(train_series)
+    n = series_length(train_series)
     val_size = n // (n_splits + 1)
     train_size = (n_splits - 1) * val_size
     max_shift = n - train_size - val_size
@@ -170,13 +170,11 @@ def plot_cv_split_overview(best_qrc_row, data_profile_config, constants):
     ax.axvline(cv_end, color='black', linewidth=0.8, linestyle='--')
 
     ax.plot(pred_x, qrc_preds,
-            color='crimson', linewidth=1.4, linestyle='--',
-            label=f"Best QRC prediction (Median Test MSE: {best_qrc_row['median_test_mse']:.6f})")
+            color='crimson', linewidth=2.8, linestyle='--',
+            label=f"Best QRC prediction (Median Test NMSE: {best_qrc_row['median_test_nmse']:.6f})")
 
     ax.set_xlabel("Time Step", fontsize=12)
     ax.set_ylabel("Normalized Value", fontsize=12)
-    ax.set_title(f"CV pool / Held-out Test split with QRC prediction — {profile_name}",
-                 fontsize=14, weight='bold')
     ax.legend(loc='upper right', fontsize=10)
     ax.grid(True, which='both', linestyle='--', alpha=0.4)
     fig.tight_layout()
@@ -186,11 +184,12 @@ def plot_cv_split_overview(best_qrc_row, data_profile_config, constants):
 
 def plot_cv_vs_test_scatter(results_df, save_path='../reports/figures/cv_vs_test_scatter.png'):
     """
-    Honest-CV scatter: median_cv_mse (x) vs median_test_mse (y) for every
+    Honest-CV scatter: median_cv_nmse (x) vs median_test_nmse (y) for every
     hyperparameter combination in results_df. Points clustered around the y=x
     line indicate the CV procedure ranks hyperparameters consistently with the
     held-out test.
 
+    Requires NMSE columns — call `compute_nmse_columns(results_df, ...)` first.
     One subplot per data profile; markers distinguish QRC vs Classical_ESN.
     """
     profiles = sorted(results_df['data_profile'].unique())
@@ -205,29 +204,33 @@ def plot_cv_vs_test_scatter(results_df, save_path='../reports/figures/cv_vs_test
         ax = axes[row][col]
 
         profile_df = results_df[results_df['data_profile'] == profile].dropna(
-            subset=['median_cv_mse', 'median_test_mse']
+            subset=['median_cv_nmse', 'median_test_nmse']
         )
 
         for model_type, marker, color in [('QRC', 'o', 'tab:blue'),
                                           ('Classical_ESN', '^', 'tab:orange')]:
             m = profile_df[profile_df['model_type'] == model_type]
             if not m.empty:
-                ax.scatter(m['median_cv_mse'], m['median_test_mse'],
+                ax.scatter(m['median_cv_nmse'], m['median_test_nmse'],
                            marker=marker, color=color, alpha=0.55,
                            edgecolors='black', linewidths=0.4,
                            label=model_type, s=40)
 
         if not profile_df.empty:
-            mn = min(profile_df['median_cv_mse'].min(), profile_df['median_test_mse'].min())
-            mx = max(profile_df['median_cv_mse'].max(), profile_df['median_test_mse'].max())
+            mn = min(profile_df['median_cv_nmse'].min(), profile_df['median_test_nmse'].min())
+            mx = max(profile_df['median_cv_nmse'].max(), profile_df['median_test_nmse'].max())
             mn = max(mn, 1e-14)
             ax.plot([mn, mx], [mn, mx], color='black', linestyle='--', linewidth=0.9, label='y = x')
             ax.set_xscale('log')
             ax.set_yscale('log')
 
-        ax.set_xlabel('Median CV MSE')
-        ax.set_ylabel('Median Test MSE')
-        ax.set_title(profile, fontsize=10)
+        ax.set_xlabel('Median CV NMSE')
+        ax.set_ylabel('Median Test NMSE')
+        # Profile identification via in-plot annotation (titles removed for thesis captioning)
+        ax.text(0.97, 0.05, profile, transform=ax.transAxes,
+                ha='right', va='bottom', fontsize=9, weight='bold',
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
+                          edgecolor='gray', alpha=0.85))
         ax.grid(True, which='both', linestyle='--', alpha=0.4)
         ax.legend(loc='upper left', fontsize=8)
 
@@ -235,8 +238,6 @@ def plot_cv_vs_test_scatter(results_df, save_path='../reports/figures/cv_vs_test
         row, col = idx // n_cols, idx % n_cols
         axes[row][col].axis('off')
 
-    fig.suptitle("CV vs Test: median CV MSE vs median Test MSE per hyperparameter combination",
-                 fontsize=13, weight='bold', y=1.00)
     fig.tight_layout()
     fig.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.show()

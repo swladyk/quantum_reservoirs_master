@@ -3,7 +3,8 @@
 import numpy as np
 from sklearn.metrics import mean_squared_error
 
-from .data_generation import create_io_pairs
+from .data_generation import (create_io_pairs, make_io_pairs,
+                              series_length, slice_series)
 from .models import (train_esn_reservoir, predict_esn,
                      initialize_classical_reservoir, train_classical_reservoir,
                      predict_esn_classical)
@@ -14,10 +15,14 @@ WASHOUT = 100
 
 
 def _split_cv_pool_and_test(time_series, train_fraction):
-    """Split a time series into (cv_pool, held_out_test)."""
-    n = len(time_series)
+    """
+    Split a time series into (cv_pool, held_out_test).
+    Works for both 1D arrays (autoregressive) and (s, y) tuples (input-driven).
+    """
+    n = series_length(time_series)
     cv_end = int(n * train_fraction)
-    return time_series[:cv_end], time_series[cv_end:]
+    return (slice_series(time_series, 0, cv_end),
+            slice_series(time_series, cv_end, n))
 
 
 def sliding_cv_folds(cv_pool, n_splits):
@@ -32,8 +37,10 @@ def sliding_cv_folds(cv_pool, n_splits):
     For n_splits=5 on a 1600-pt pool:
         val_size = 266, train_size = 1064, max_shift = 270
         shifts = [0, 67, 135, 202, 270]
+
+    Works for both 1D arrays and (s, y) tuples.
     """
-    n = len(cv_pool)
+    n = series_length(cv_pool)
     val_size = n // (n_splits + 1)
     train_size = (n_splits - 1) * val_size
     max_shift = n - train_size - val_size
@@ -45,8 +52,9 @@ def sliding_cv_folds(cv_pool, n_splits):
 
     folds = []
     for shift in shifts:
-        train_data = cv_pool[shift: shift + train_size]
-        val_data = cv_pool[shift + train_size: shift + train_size + val_size]
+        train_data = slice_series(cv_pool, shift, shift + train_size)
+        val_data = slice_series(cv_pool, shift + train_size,
+                                shift + train_size + val_size)
         folds.append((train_data, val_data))
     return folds
 
@@ -57,8 +65,8 @@ def _qrc_fit_predict(params, train_data, eval_data, seed):
     """Train a QRC on train_data, evaluate on eval_data. Returns MSE."""
     leakage_rate, lambda_reg, window_size, n_layers, lag = params
 
-    train_inputs, train_outputs = create_io_pairs(train_data, window_size, lag)
-    eval_inputs, eval_outputs = create_io_pairs(eval_data, window_size, lag)
+    train_inputs, train_outputs = make_io_pairs(train_data, window_size, lag)
+    eval_inputs, eval_outputs = make_io_pairs(eval_data, window_size, lag)
 
     W_out, weights, biases, _ = train_esn_reservoir(
         train_inputs, train_outputs, n_layers, window_size,
@@ -75,8 +83,8 @@ def _classical_fit_predict(params, train_data, eval_data, seed):
     """Train a Classical ESN on train_data, evaluate on eval_data. Returns MSE."""
     reservoir_size, spectral_radius, sparsity, leakage_rate, lambda_reg, window_size = params
 
-    train_inputs, train_outputs = create_io_pairs(train_data, window_size)
-    eval_inputs, eval_outputs = create_io_pairs(eval_data, window_size)
+    train_inputs, train_outputs = make_io_pairs(train_data, window_size)
+    eval_inputs, eval_outputs = make_io_pairs(eval_data, window_size)
 
     W_in, W_res = initialize_classical_reservoir(
         reservoir_size, window_size, spectral_radius, sparsity, seed

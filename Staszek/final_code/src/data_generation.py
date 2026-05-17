@@ -103,6 +103,31 @@ def generate_arma_data(n_points=2000, ar_coeffs=[1, -0.7], ma_coeffs=[1, 0.5, -0
     return data_scaled
 
 
+def generate_arma_input_driven_data(n_points=2000, ar_coeffs=[1, -0.7],
+                                    ma_coeffs=[1, 0.5, -0.3], seed=42):
+    """
+    Generate input-driven ARMA(p,q) task data.
+
+    Analogous to `generate_narma_input_driven_data`: the reservoir receives
+    WINDOWS of the noise input `s` and must estimate the corresponding ARMA
+    system response `y` at the last window position, rather than predict the
+    next value of `y` autoregressively.
+
+    Returns
+    -------
+    (s_scaled, y_scaled) : tuple of np.ndarray
+        Both arrays have length `n_points` and are scaled to [0, 1].
+        Format consumed by `make_io_pairs` and the rest of the pipeline.
+    """
+    np.random.seed(seed)
+    s = np.random.normal(0, 1, n_points)
+    y = lfilter(ma_coeffs, ar_coeffs, s)
+
+    s_scaled = (s - s.min()) / (s.max() - s.min())
+    y_scaled = (y - y.min()) / (y.max() - y.min())
+    return s_scaled, y_scaled
+
+
 def generate_narma_data(n_points=2000, order=10, alpha=0.3, beta=0.05, gamma=1.5, delta=0.1, seed=42):
     """
     Generates time series data from a NARMA process and scales it to [0, 1].
@@ -138,3 +163,94 @@ def generate_narma_data(n_points=2000, order=10, alpha=0.3, beta=0.05, gamma=1.5
     y_scaled = (y - y_min) / (y_max - y_min)
 
     return y_scaled
+
+
+def generate_narma_input_driven_data(n_points=2000, order=10, alpha=0.3, beta=0.05,
+                                     gamma=1.5, delta=0.1, seed=42):
+    """
+    Generate input-driven NARMA task data.
+
+    Standard 'input-driven' formulation (Atiya & Parlos 2000, Jaeger 2003):
+    the reservoir receives WINDOWS of the noise input `s` and must estimate
+    the corresponding value of the NARMA system response `y`, rather than
+    predict the next value of `y` autoregressively.
+
+    Returns
+    -------
+    (s_scaled, y_scaled) : tuple of np.ndarray
+        Both arrays have length `n_points` and are scaled to [0, 1].
+        Use the (input, target) tuple format consumed by `make_io_pairs`
+        and the rest of the experiment pipeline.
+    """
+    np.random.seed(seed)
+    s = np.random.uniform(0, 0.5, n_points)
+    y = np.zeros(n_points)
+    for k in range(order, n_points):
+        sum_term = np.sum(y[k - order:k])
+        y[k] = (alpha * y[k - 1] +
+                beta * y[k - 1] * sum_term +
+                gamma * s[k - order] * s[k] +
+                delta)
+
+    s_scaled = (s - s.min()) / (s.max() - s.min())
+    y_scaled = (y - y.min()) / (y.max() - y.min())
+    return s_scaled, y_scaled
+
+
+def create_io_pairs_input_driven(input_series, target_series, window_size):
+    """
+    Build (input window, target) pairs for input-driven tasks.
+
+    Window:  u(t) = [s_t, s_{t+1}, ..., s_{t+w-1}]   (length w)
+    Target:  y(t) = target_series[t + w - 1]
+
+    Returns (inputs, outputs) of length len(input_series) - window_size + 1.
+    """
+    n = len(input_series)
+    if len(target_series) != n:
+        raise ValueError(
+            f"input/target length mismatch: {n} vs {len(target_series)}"
+        )
+
+    n_pairs = n - window_size + 1
+    inputs = np.array([input_series[i:i + window_size] for i in range(n_pairs)])
+    outputs = np.array([target_series[i + window_size - 1] for i in range(n_pairs)])
+    return inputs, outputs
+
+
+# --- Generic dispatch helpers ---
+# These let the rest of the pipeline treat autoregressive (1D array) and
+# input-driven ((input, target) tuple) tasks uniformly.
+
+def _is_input_driven_series(time_series):
+    """Detect input-driven task: time_series is an (input, target) tuple."""
+    return isinstance(time_series, tuple) and len(time_series) == 2
+
+
+def series_length(time_series):
+    """Length of a time series in either format."""
+    if _is_input_driven_series(time_series):
+        return len(time_series[0])
+    return len(time_series)
+
+
+def slice_series(time_series, start, end):
+    """Slice a time series — handles both 1D arrays and (s, y) tuples."""
+    if _is_input_driven_series(time_series):
+        s, y = time_series
+        return (s[start:end], y[start:end])
+    return time_series[start:end]
+
+
+def make_io_pairs(time_series, window_size, lag=0):
+    """
+    Build IO pairs — dispatches on task format.
+
+    - 1D array  -> autoregressive: target = data[i + window_size + lag]
+    - (s, y)    -> input-driven:   target = y[i + window_size - 1]
+                                   (lag is ignored)
+    """
+    if _is_input_driven_series(time_series):
+        s, y = time_series
+        return create_io_pairs_input_driven(s, y, window_size)
+    return create_io_pairs(time_series, window_size, lag)

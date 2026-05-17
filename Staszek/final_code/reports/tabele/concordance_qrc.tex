@@ -1,0 +1,19 @@
+\begin{table}[ht]
+\centering
+\caption{Probability of concordance dla modelu QRC: efektywna wymiarowość vs test NMSE. Bootstrap 95\% CI z 1000 resampli.}
+\label{tab:concordance-qrc}
+\begin{tabular}{lcc}
+\toprule
+Zbiór danych & Concordance \% & 95\% CI (bootstrap) \\
+\midrule
+\texttt{Mackey\_Glass\_(tau=17)} & 87.0\% & [81.7, 90.5]\% \\
+\texttt{Mackey\_Glass\_(tau=30)} & 86.9\% & [82.1, 89.8]\% \\
+\texttt{Mackey\_Glass\_(tau=100)} & 82.9\% & [76.8, 86.1]\% \\
+\texttt{ARMA\_InputDriven} & 75.4\% & [62.9, 84.2]\% \\
+\texttt{NARMA10\_InputDriven} & 52.7\% & [39.3, 66.3]\% \\
+\texttt{NARMA5\_InputDriven} & 75.2\% & [66.2, 83.2]\% \\
+\midrule
+\textbf{Wszystkie zbiory (cumulative)} & \textbf{49.2\%} & \textbf{[44.6, 53.9]\%} \\
+\bottomrule
+\end{tabular}
+\end{table}

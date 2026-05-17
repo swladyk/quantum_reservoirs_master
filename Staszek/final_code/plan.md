@@ -55,15 +55,15 @@ Cele pracy:
 | Faza 0 — notebook 00 methodology | ✓ |
 | Faza 1.1 — NMSE jako kolumny | ✓ (ale tylko w notebook 04, nie w 02) |
 | Faza 1.2 — rozszerzona tabela porównawcza | ✓ (różne miejsca: 04 sekcja 3, 04 sekcja 4) |
-| Faza 1.3 — heatmapy NMSE per model per profil | **częściowo** — tylko QRC, brak Classical |
-| Faza 1.4 — heatmapa różnicy QRC − Classical | **nie zrobione** |
+| Faza 1.3 — heatmapy NMSE per model per profil | ✓ (notebook 04 sekcja 5: Classical heatmapy) |
+| Faza 1.4 — heatmapa różnicy QRC − Classical | ✓ (notebook 04 sekcja 6: diff heatmapy) |
 | Faza 1.5 — tabela ablacji pamięci | **częściowo** — wbudowana w tabelę 4-config, nie samodzielna |
 | Faza 2.1 — effective_dim dla Classical | ✓ |
 | Faza 2.2 — concordance per profil | ✓ |
-| Faza 2.3 — concordance per window_size-bin (kontrolne) | **nie zrobione** — ważne! odpowiada na zarzut confounding |
+| Faza 2.3 — concordance per window_size-bin (kontrolne) | ✓ (notebook 03: `concordance_per_bin_*.tex`) |
 | Faza 2.4 — bootstrap CI | ✓ |
 
-**Trzy konkretne dziury, które warto zamknąć:** 1.3 (Classical heatmapy), 1.4 (różnica), 2.3 (concordance kontrolne).
+**Zostały do zamknięcia:** 1.5 (wykres dekompozycji pamięci jako samodzielny), oraz nice-to-have z poprzedniej listy (D — weryfikacja eff_dim ≤ 2 przy ws=1).
 
 ---
 

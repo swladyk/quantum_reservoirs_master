@@ -1,0 +1,19 @@
+\begin{table}[ht]
+\centering
+\caption{Concordance \% per window-size-bin dla modelu QRC. Mediana z binów = syntetyczna liczba po kontroli rozmiaru okna jako confoundera.}
+\label{tab:concordance-per-bin-qrc}
+\begin{tabular}{lccccccc}
+\toprule
+Zbiór danych & $w{=}1$ & $w{=}2$ & $w{=}4$ & $w{=}6$ & $w{=}8$ & $w{=}10$ & Mediana \\
+\midrule
+\texttt{ARMA\_InputDriven} & \textemdash & \textemdash & 56\% & 28\% & 18\% & 7\% & \textbf{23\%} \\
+\texttt{Mackey\_Glass\_(tau=100)} & \textemdash & \textemdash & \textemdash & \textemdash & \textemdash & \textemdash & \textemdash \\
+\texttt{Mackey\_Glass\_(tau=17)} & \textemdash & \textemdash & 67\% & 68\% & \textemdash & 67\% & \textbf{67\%} \\
+\texttt{Mackey\_Glass\_(tau=30)} & \textemdash & \textemdash & 79\% & \textemdash & \textemdash & 89\% & \textbf{84\%} \\
+\texttt{NARMA10\_InputDriven} & \textemdash & \textemdash & 7\% & 7\% & 5\% & 7\% & \textbf{7\%} \\
+\texttt{NARMA5\_InputDriven} & \textemdash & \textemdash & 7\% & 54\% & 20\% & 7\% & \textbf{14\%} \\
+\midrule
+\textbf{Wszystkie zbiory} & \textemdash & 14\% & 21\% & 21\% & 17\% & 26\% & \textbf{21\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
